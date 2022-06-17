@@ -185,6 +185,7 @@ function createReactiveObject(
   collectionHandlers: ProxyHandler<any>,
   proxyMap: WeakMap<Target, any>
 ) {
+  // 判断是否是对象
   if (!isObject(target)) {
     if (__DEV__) {
       console.warn(`value cannot be made reactive: ${String(target)}`)
@@ -199,16 +200,36 @@ function createReactiveObject(
   ) {
     return target
   }
+  // 当前目标proxy 是否存在
   // target already has corresponding Proxy
   const existingProxy = proxyMap.get(target)
-  if (existingProxy) {
+  if (existingProxy) { //存在直接返回 proxy
     return existingProxy
   }
+  /**
+   * TargetType 对象
+   *  INVALID = 0,
+   *  COMMON = 1, OBJECT / ARRAY
+   *  COLLECTION = 2
+   *   case 'Object':
+   *   case 'Array':
+   *       return TargetType.COMMON
+   *   case 'Map':
+   *   case 'Set':
+   *   case 'WeakMap':
+   *   case 'WeakSet':
+   *      return TargetType.COLLECTION
+   *   default:
+   *       return TargetType.INVALID
+   */
   // only specific value types can be observed.
   const targetType = getTargetType(target)
   if (targetType === TargetType.INVALID) {
     return target
   }
+  /**
+   * @describe: 针对不同类型的数据 执行不同函数
+   */
   const proxy = new Proxy(
     target,
     targetType === TargetType.COLLECTION ? collectionHandlers : baseHandlers
