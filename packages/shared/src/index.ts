@@ -44,7 +44,9 @@ const hasOwnProperty = Object.prototype.hasOwnProperty
 export const hasOwn = (
   val: object,
   key: string | symbol
-): key is keyof typeof val => hasOwnProperty.call(val, key)
+): key is keyof typeof val => {
+  return hasOwnProperty.call(val, key);
+}
 
 export const isArray = Array.isArray
 export const isMap = (val: unknown): val is Map<any, any> =>

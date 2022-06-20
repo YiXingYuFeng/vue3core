@@ -87,13 +87,19 @@ function createArrayInstrumentations() {
 
 function createGetter(isReadonly = false, shallow = false) {
   return function get(target: Target, key: string | symbol, receiver: object) {
+    // 如果get访问的key是 is_reactive. 返回非 isReadonly
     if (key === ReactiveFlags.IS_REACTIVE) {
       return !isReadonly
+      // 如果get访问的key是 is_readonly 返回当前配置isReadonly
     } else if (key === ReactiveFlags.IS_READONLY) {
       return isReadonly
+      // 如果get访问的key是is_shallow 返回当前配置shallow
     } else if (key === ReactiveFlags.IS_SHALLOW) {
       return shallow
     } else if (
+        /**
+         * 如果get 访问的key是_v_raw 并且 receiver的值和 原始标识相等 返回原始值
+         */
       key === ReactiveFlags.RAW &&
       receiver ===
         (isReadonly
@@ -107,32 +113,50 @@ function createGetter(isReadonly = false, shallow = false) {
     ) {
       return target
     }
-
+    // 原始值是否是数组
     const targetIsArray = isArray(target)
-
+    /**
+     * @date 2022-06-20 15:24:40
+     * @describe: 如果当前非只读且是数组，访问的key在需要劫持的方法中
+     *            返回数组执行后的结果
+     */
     if (!isReadonly && targetIsArray && hasOwn(arrayInstrumentations, key)) {
       return Reflect.get(arrayInstrumentations, key, receiver)
     }
 
+    // 获取Reflect执行的获取的结果
     const res = Reflect.get(target, key, receiver)
 
+    /**
+     * 当前key是否是 Symbol
+     * 是
+     * 否 如果key是不用跟踪的 -> __proto__,__v_isRef,__isVue
+     * 返回 Reflect执行的获取的结果
+     */
     if (isSymbol(key) ? builtInSymbols.has(key) : isNonTrackableKeys(key)) {
       return res
     }
-
+    // 非只读，执行track 收集依赖
     if (!isReadonly) {
       track(target, TrackOpTypes.GET, key)
     }
-
+    // 如果是shallow浅层响应，直接返回  获取Reflect执行的获取的结果
     if (shallow) {
       return res
     }
-
+    /**
+     * 如果res是ref
+     *  如果是数组 直接返回 res
+     *  非数组 返回解包后的值
+     */
     if (isRef(res)) {
       // ref unwrapping - skip unwrap for Array + integer key.
       return targetIsArray && isIntegerKey(key) ? res : res.value
     }
-
+    /**
+     * 将返回的值转换为代理，且对此做类型（isObject) 检查
+     * 需要慢访问只读和reactive,以避免循环依赖
+     */
     if (isObject(res)) {
       // Convert returned value into a proxy as well. we do the isObject check
       // here to avoid invalid value warning. Also need to lazy access readonly
@@ -154,15 +178,30 @@ function createSetter(shallow = false) {
     value: unknown,
     receiver: object
   ): boolean {
+    // 通过key 获取到当前旧值
     let oldValue = (target as any)[key]
+    /**
+     *  当前旧值是只读状态 且为 ref
+     *  新值不是 ref
+     *  直接返回 false
+     */
     if (isReadonly(oldValue) && isRef(oldValue) && !isRef(value)) {
       return false
     }
+    /**
+     * 当前不是shallow浅层响应模式且新值不是只读模式
+     * 1：如果新值不是 shallow模式
+     *    新值、旧值都执行 toRaw函数
+     *  2：如果当前对象不是数组 且 当前旧值是ref 新值不是ref
+     *     将新值赋值给旧值
+     *     并返回 true
+     */
     if (!shallow && !isReadonly(value)) {
       if (!isShallow(value)) {
         value = toRaw(value)
         oldValue = toRaw(oldValue)
       }
+
       if (!isArray(target) && isRef(oldValue) && !isRef(value)) {
         oldValue.value = value
         return true
@@ -170,7 +209,11 @@ function createSetter(shallow = false) {
     } else {
       // in shallow mode, objects are set as-is regardless of reactive or not
     }
-
+    /**
+     * 如果当前目标是数组且isIntegerKey中存在这个key
+     * toRaw 返回原始对象，可用于临时读取数据而无需承担代理访问/跟踪的开销
+     * 也可用于写入数据而避免触发更改
+     */
     const hadKey =
       isArray(target) && isIntegerKey(key)
         ? Number(key) < target.length
